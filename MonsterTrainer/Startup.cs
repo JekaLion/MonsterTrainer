@@ -1,9 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Domain.Data;
 using Domain.Entities.User;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
@@ -14,6 +19,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 
 namespace MonsterTrainer
 {
@@ -32,8 +38,7 @@ namespace MonsterTrainer
             services.AddDbContext<Context>(options =>
                 options.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
 
-            services.AddIdentity<ApplicationUser, IdentityRole>()
-                .AddEntityFrameworkStores<Context>();
+            ConfigureServiceAuthorization(services);
 
             services.AddControllers();
         }
@@ -44,19 +49,54 @@ namespace MonsterTrainer
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+                app.UseCors(options =>
+                {
+                    options.AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .WithOrigins("http://localhost:4200")
+                           .AllowCredentials();
+                });
             }
+
+            app.Use(async (context, next) =>
+            {
+                await next();
+                if (context.Response.StatusCode == 404 &&
+                    !Path.HasExtension(context.Request.Path.Value) &&
+                    !context.Request.Path.Value.StartsWith("/api/"))
+                {
+                    context.Request.Path = "/index.html";
+                    await next();
+                }
+            });
+
+            app.UseWebSockets();
+            app.UseStaticFiles();
+            app.UseAuthentication();
+            app.UseAuthorization();
 
             app.UseHttpsRedirection();
 
             app.UseRouting();
 
-            app.UseAuthentication();
-            app.UseAuthorization();
-
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
             });
+
+            //app.UseSignalR(routes =>
+            //{
+            //    routes.MapHub<BalanceHub>("/hubs/balance");
+            //});
+        }
+
+        public void ConfigureServiceAuthorization(IServiceCollection services)
+        {
+            services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                .AddCookie(options =>
+                {
+                    options.LoginPath = new Microsoft.AspNetCore.Http.PathString("/auth/signin");
+                });
         }
     }
 }
